@@ -45,11 +45,19 @@ interface works.
 5. `rpcb check` for mechanical findings.
 6. `rpcb text` for a full pass; targeted queries for single questions.
 
-## Gather datasheets first — this blocks the review
+## Get the datasheets you need BEFORE reviewing
 
-You cannot verify an electrical limit you do not have. `rpcb datasheets` names
-every part whose limits could matter and the one canonical path each document
-belongs at:
+This matters more than it sounds. Every wrong-but-confident hardware finding
+comes from the same place: a limit recalled instead of read. You cannot tell
+from the inside which of your remembered numbers is the wrong one, and a second
+opinion agreeing with you proves nothing — you would both be recalling. The
+document is the only thing that settles it, and it has to be in hand *before*
+you reason, because once you hold a view you will read the datasheet looking for
+confirmation rather than for the number.
+
+`rpcb datasheets` gives you the candidates: every part that could plausibly need
+a document, with part number, pin count, description, and the canonical path its
+datasheet belongs at:
 
 ```
 vendor/<part>/datasheets/<MPN>.pdf    primary — beside that part's symbols,
@@ -60,53 +68,69 @@ datasheets/<MPN>.pdf                  secondary — a document covering several
                                       matches
 ```
 
-It exits non-zero while anything is absent or unfiled.
+### 1. Decide which ones this review actually turns on
 
-**The command does not look inside any file.** `filed` means only that a file
-sits at that path — a zero-byte file with the right name reports `filed`. You
-are the check. Work the list until it exits clean, then review.
+**Your judgement — the command deliberately does not make it.** It cannot: which
+parts matter depends on what you are reviewing, and it does not know that.
 
-### 1. Open every file it lists
+Reason from the question you were asked. A general review turns on the parts
+whose behaviour you cannot derive from the schematic — MCUs, regulators,
+sensors, transceivers, crystals: supply windows, drive strength, load
+capacitance, timing. A question about one subsystem turns on that subsystem's
+parts and little else.
 
-For each `filed` entry and every `unfiled` file, open the PDF and confirm which
-device it actually covers.
+Do not reflexively fetch everything. Twenty documents you did not read are worse
+than five you did, because the list becomes a chore instead of evidence. But do
+not under-reach: if a finding ends up resting on a TVS standoff voltage, a
+Schottky drop, or a connector's current rating, you needed that one — go get it
+then.
+
+**Say what you decided.** One line each for the parts you judged this review does
+not turn on. A part silently dropped is indistinguishable from one you forgot.
+
+### 2. Open every file already on disk
+
+`filed` means only that a file sits at the canonical path — the command never
+reads it, and a zero-byte file with the right name reports `filed`. You are the
+check. For each `filed` entry and every `unfiled` file, open it and confirm
+which device it covers:
 
 - **Right document, right path** — leave it.
-- **Right document, wrong name or wrong folder** — move it to the canonical path
-  printed for that part, creating the directory if needed.
-- **Wrong document** — do not leave it at a path that claims otherwise. Say so
-  and treat that part as absent.
+- **Right document, wrong name or folder** — move it to the canonical path
+  printed for that part, creating directories as needed.
+- **Wrong document** — do not leave it at a path claiming otherwise. Say so and
+  treat that part as absent.
 - **Not a part on this board** — leave it and say what it is. Never delete a
   document you did not add.
 
 A datasheet link inherited from a borrowed symbol may name another device, so a
 filename is never evidence of contents.
 
-### 2. Fetch what is absent
+### 3. Fetch what you decided you need
 
 Use the link the schematic carries, or search the MPN. Confirm the document
-names the part before filing it. A confidently wrong datasheet is worse than a
+names the part before filing it — a confidently wrong datasheet is worse than a
 missing one.
 
-### 3. Ask for the rest, and stop
+### 4. Ask for what you cannot get, and stop
 
-If you cannot fetch one, list those parts, say what you tried, and ask the user
-for the documents. **Do not begin the review.** Do not quietly review the parts
-you do have — a partial review reads as a complete one. Proceed only if the user
-explicitly says to go ahead without them.
+If a document you decided you need cannot be fetched, name those parts, say what
+you tried, and ask the user for them. **Do not start the review.** Do not
+quietly review around them — a partial review reads as a complete one. Proceed
+only if the user says to go ahead, and then label every affected finding
+**UNVERIFIED**.
 
-### 4. Report the BOM gaps
+### 5. Report the BOM gaps
 
-The command lists parts with no MPN and parts with no manufacturer. Tell the
-user to fix them in the schematic: MPN is the join key, so a part without one
-cannot be looked up, filed, or ordered. Report this even when nothing blocked
-you.
+The command lists parts with no MPN and no manufacturer. Tell the user to fix
+them: MPN is the join key, so a part without one cannot be looked up, filed, or
+ordered. Report this even when it did not affect your review.
 
-### What does not need a datasheet
+### What needs no datasheet
 
-Connectivity questions — what a pin joins, what sits on a net, whether a rail is
-driven — need no document; answer those freely. The gate applies the moment a
-claim turns on a voltage, current, timing or thermal number.
+Connectivity — what a pin joins, what sits on a net, whether a rail is driven —
+is answered by the model itself. Answer those freely. The obligation starts the
+moment a claim turns on a voltage, current, timing or thermal number.
 
 ## Project requirements — answer every one, in a table
 

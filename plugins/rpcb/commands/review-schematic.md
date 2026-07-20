@@ -36,28 +36,40 @@ All accept `--json`. The model auto-regenerates when the schematic changes.
 5. `rpcb check` for mechanical findings.
 6. `rpcb text` if doing a full pass; targeted queries otherwise.
 
-## Gather datasheets first — this blocks the review
+## Get the datasheets you need BEFORE reviewing
 
-`rpcb datasheets` names every part whose limits could matter and the one
-canonical path each document belongs at (`vendor/<part>/datasheets/<MPN>.pdf`,
-or `datasheets/<MPN>.pdf` where no vendor folder matches). It exits non-zero
-while anything is absent or unfiled.
+Every wrong-but-confident hardware finding comes from a limit recalled instead
+of read. You cannot tell from the inside which remembered number is the wrong
+one, and a second opinion agreeing proves nothing — you would both be recalling.
+Get the document before you reason, not after: once you hold a view you will
+read the datasheet for confirmation rather than for the number.
 
-**It does not look inside any file.** `filed` means a file sits at that path —
-a zero-byte file named correctly reports `filed`. You are the check.
+`rpcb datasheets` gives the candidates — part number, pin count, description,
+and the canonical path each belongs at (`vendor/<part>/datasheets/<MPN>.pdf`, or
+`datasheets/<MPN>.pdf` where no vendor folder matches).
 
-1. **Open every file listed**, including the `unfiled` ones, and confirm which
-   device each actually covers. Right document at the wrong name or in the wrong
-   folder: move it to the canonical path, creating directories as needed. Wrong
-   document: say so and treat the part as absent. A file for no part on this
-   board: leave it and say what it is — never delete a document you did not add.
-2. **Fetch what is absent** from the schematic's link or by searching the MPN,
-   confirming the device before filing it.
-3. **Ask the user for the rest, and stop.** Do not begin the review, and do not
-   quietly review only the parts you have — a partial review reads as a complete
-   one. Continue only if the user says to proceed without them.
-4. **Report the BOM gaps** it lists — parts with no MPN or no manufacturer. MPN
-   is the join key: without one a part cannot be looked up, filed, or ordered.
+1. **Decide which this review turns on — your judgement, not the command's.**
+   It cannot know what you are reviewing. A general review turns on parts whose
+   behaviour you cannot derive from the schematic: MCUs, regulators, sensors,
+   transceivers, crystals. A subsystem question turns on that subsystem. Do not
+   reflexively fetch everything — twenty documents you did not read are worse
+   than five you did. But if a finding ends up resting on a TVS standoff, a
+   Schottky drop or a connector's rating, go get that one then. **State in one
+   line each which parts you judged irrelevant**; a silent drop looks identical
+   to a forgotten one.
+2. **Open every file already on disk**, including `unfiled` ones. `filed` means
+   only that a file sits at that path — the command never reads it, and a
+   zero-byte file reports `filed`. Right document, wrong name or folder: move it
+   to the canonical path. Wrong document: say so, treat the part as absent. Not
+   a part on this board: leave it and say what it is — never delete a document
+   you did not add.
+3. **Fetch what you decided you need**, confirming the document names the part
+   before filing it.
+4. **Ask for what you cannot get, and stop.** Do not begin the review and do not
+   quietly review around it — a partial review reads as a complete one. Proceed
+   only if the user says so, labelling affected findings **UNVERIFIED**.
+5. **Report the BOM gaps** — parts with no MPN or no manufacturer. MPN is the
+   join key: without one a part cannot be looked up, filed, or ordered.
 
 ## Project requirements — answer every one, in a table
 

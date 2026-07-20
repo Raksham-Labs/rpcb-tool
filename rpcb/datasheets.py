@@ -40,6 +40,15 @@ PASSIVE_PREFIXES = frozenset({
     'R', 'C', 'L', 'FB', 'TP', 'H', 'FID', 'MH', 'MK', 'LOGO', 'NT', 'JP',
 })
 
+# Which of these a given review actually turns on is NOT decided here. A
+# reference prefix cannot tell you that: a TVS standoff voltage is the whole
+# question on one board and irrelevant on the next, and the difference is what
+# is being reviewed -- something this module has no access to.
+#
+# So the tool reports every candidate with enough context to judge it -- part
+# number, description, pin count, what is on disk -- and the reviewer decides
+# what it needs before starting. See review_prompt.md.
+
 VENDOR_DIR = 'vendor'
 DATASHEET_DIR = 'datasheets'
 
@@ -182,6 +191,12 @@ def inventory(model, root):
             'mpn': mpn,
             'manufacturer': _clean(comp.get('manufacturer')),
             'value': value,
+            # Description, pin count and symbol are what let a reviewer tell an
+            # MCU from an indicator LED without opening anything. Carried here
+            # so the judgement can be made from this one command.
+            'description': _clean(comp.get('description')),
+            'pins': len(comp.get('pins') or ()),
+            'libpart': _clean(comp.get('libpart')),
             'url': url if _is_url(url) else '',
             'url_field': url,
             'identified': bool(key),
@@ -225,21 +240,29 @@ def render(inv):
     if not required:
         return 'no parts require a datasheet (only passives and mechanical).'
 
-    w(f"{len(required)} parts require a datasheet — {len(inv['filed'])} filed, "
+    w(f"{len(required)} candidate parts — {len(inv['filed'])} filed, "
       f"{len(absent)} absent"
       + (f", {len(unknown)} unidentified" if unknown else ''))
     w('')
-    w('"filed" means a file sits at the canonical path below. It does NOT mean')
-    w('the file is the right document — open each one and confirm it names the')
-    w('part before trusting a number from it.')
+    w('This is the candidate list, NOT a fetch list. Which of these a review')
+    w('turns on depends on what is being reviewed, which this command cannot')
+    w('know — decide that yourself from the descriptions below, get what you')
+    w('need BEFORE reviewing, and say which you judged irrelevant and why.')
+    w('')
+    w('"filed" means a file sits at the canonical path. It does NOT mean the')
+    w('file is the right document — open it and confirm it names the part.')
 
     named = [r for r in required if r['identified']]
     if named:
         w('')
-        w(f"  {'ref':<7}{'part':<22}{'':<3}canonical path")
+        w(f"  {'ref':<7}{'part':<22}{'pins':>5}  {'what it is':<30}datasheet")
         for r in named:
-            mark = 'ok ' if r['filed'] else '-- '
-            w(f"  {r['ref']:<7}{(r['mpn'] or r['value'])[:21]:<22}{mark}{r['path']}")
+            # Fall back to the symbol name, minus an empty library nickname
+            # that would otherwise render as a bare leading colon.
+            what = (r['description'] or r['libpart'].lstrip(':') or '—')[:29]
+            where = r['path'] if r['filed'] else f"ABSENT -> {r['path']}"
+            w(f"  {r['ref']:<7}{(r['mpn'] or r['value'])[:21]:<22}"
+              f"{r['pins']:>5}  {what:<30}{where}")
 
     if unfiled:
         w('')

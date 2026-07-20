@@ -145,17 +145,21 @@ def cmd_requirements(args):
 
 
 def cmd_datasheets(args):
-    """Inventory the documents a review needs before it can verify any limit.
+    """Inventory the documents a review may need to verify an electrical limit.
 
-    Exits non-zero while any are absent or any file is unfiled: this is a gate,
-    and a gate that always returns 0 is a suggestion. Unidentified parts do not
-    hold it shut -- their gap is the BOM, not a missing document.
+    Exits 0 by default. Which parts a given review turns on depends on what is
+    being reviewed, so a non-zero exit here would assert a completeness this
+    command cannot judge -- and a gate demanding every document on the board
+    gets worked around rather than satisfied. The obligation to gather before
+    reviewing lives in the prompts, where the judgement is. --strict is for CI,
+    which does want everything on disk.
     """
     project, m = get_model(args)
     inv = datasheets_mod.inventory(m, project.root)
     out(datasheets_mod.render(inv), args.json, inv)
-    blocked = inv['absent'] or inv['unfiled']
-    return 1 if blocked and not args.quiet else 0
+    if args.strict and (inv['absent'] or inv['unfiled']):
+        return 1
+    return 0
 
 
 def cmd_dump(args):
@@ -394,9 +398,10 @@ def build_parser():
     sp.add_parser('requirements',
                   help='plain-English requirements a reviewer must answer')
 
-    p = sp.add_parser('datasheets', help='which parts need a datasheet, and which are here')
-    p.add_argument('--quiet', action='store_true',
-                   help='inventory only; do not exit 1 when any are missing')
+    p = sp.add_parser('datasheets',
+                      help='candidate parts for datasheets, and what is on disk')
+    p.add_argument('--strict', action='store_true',
+                   help='exit 1 if any candidate is absent or any file unfiled')
 
     p = sp.add_parser('dump', help='raw JSON section')
     p.add_argument('section', nargs='?', default='all')

@@ -77,11 +77,31 @@ text notes, `dnp`, `in_bom`.
 ## Datasheets
 
 A rule can prove a pin is floating. It cannot tell you whether 4.6V clears a
-part's minimum — that needs the document. So a review is gated on having them:
+part's minimum — that needs the document.
 
 ```bash
-rpcb datasheets      # exits non-zero while anything is absent or unfiled
+rpcb datasheets            # candidates, with what is on disk
+rpcb datasheets --strict   # exit 1 if any candidate is absent (for CI)
 ```
+
+### The command lists candidates; the reviewer decides
+
+It reports every part that could plausibly need a datasheet, with part number,
+**pin count** and **description** — enough to tell a 49-pin Cortex-M0 from a
+2-pin indicator LED — then stops. Which ones a given review turns on depends on
+what is being reviewed, and no reference prefix knows that: a TVS standoff
+voltage is the whole question on one board and irrelevant on the next.
+
+So it exits 0. An earlier version blocked on every non-passive part, which on a
+real board meant 17 documents when 7 mattered, and the reviewer dutifully began
+bulk-downloading LEDs and connectors. **A gate that demands too much gets worked
+around rather than satisfied.** The obligation to gather before reviewing lives
+in the prompts, where the judgement is: the reviewer picks what its findings
+will rest on, fetches those first, and must state in one line each which parts
+it judged irrelevant — a silent drop being indistinguishable from a forgotten
+one.
+
+`--strict` is for CI, which genuinely does want everything on disk.
 
 Every part gets one canonical path, derived from its MPN:
 
@@ -114,8 +134,16 @@ a file is there, and which files are unfiled.
 
 Confirming the device, renaming, moving and fetching are the agent's work. The
 prompts require it to open every file, move anything misnamed or misplaced to
-its canonical path, fetch what is absent, and **stop and ask** for the rest
-rather than reviewing from recall — a partial review reads as a complete one.
+its canonical path, fetch what it decided it needs, and **stop and ask** for the
+rest rather than reviewing from recall — a partial review reads as a complete
+one.
+
+The prompts also say *why* this is worth the ceremony: every wrong-but-confident
+hardware finding is a limit recalled instead of read, you cannot tell from the
+inside which remembered number is the wrong one, and a second model agreeing
+proves nothing because it is also recalling. The document has to be in hand
+before reasoning starts — afterwards you read it looking for confirmation rather
+than for the number.
 
 Parts with no MPN and no part number in Value come back **unidentified**: there
 is nothing to look up and no canonical name to file under, so the fix is the
