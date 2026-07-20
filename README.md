@@ -116,7 +116,8 @@ whenever a schematic's SHA-256 changes, so an agent can never read a stale model
   rail; it cannot tell whether one sits near the pin it serves. That needs the
   PCB.
 - **Datasheet limits are not modelled.** Rules cannot check "is 4.6V enough for
-  this part" — see `plan.md` in a project for the parts-library approach.
+  this part" — see [docs/roadmap-adversarial-review.md](docs/roadmap-adversarial-review.md)
+  for the planned parts library.
 - **No `no_connect` flags** in a design means an unwired pin is
   indistinguishable from a deliberately-unused one.
 
@@ -139,3 +140,13 @@ install.sh
 
 The plugin contains **zero Python** — it points at `rpcb` on PATH, so Claude and
 Codex run the same implementation.
+
+## Docs
+
+- [docs/kicad-file-format.md](docs/kicad-file-format.md) — what is actually
+  inside a `.kicad_sch`, why 58% of it is noise, and the verified geometry rules
+  (with the rotation bug that motivated using `kicad-cli`). This is the research
+  the tool's design rests on.
+- [docs/roadmap-adversarial-review.md](docs/roadmap-adversarial-review.md) —
+  planned `rpcb duel`: Claude ↔ Codex adversarial review with a datasheet
+  citation gate. Not built.
