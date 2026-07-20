@@ -130,14 +130,28 @@ fi
 
 # ------------------------------------------------------------- 3. Claude MCP
 bold "Registering MCP with Claude Code"
+# Checked for CORRECTNESS, not presence. An entry left over from an older
+# install points at whatever that install used; "already registered" would
+# report success while the wrong thing stayed wired up.
 if need_cmd claude; then
-  if claude mcp list 2>/dev/null | grep -q '^rpcb'; then
-    skip "already registered"
-  elif claude mcp add --scope user rpcb -- rpcb mcp >/dev/null 2>&1; then
-    ok "registered at user scope (available in every project)"
+  mcp_line="$(claude mcp list 2>/dev/null | grep '^rpcb:' || true)"
+  if [ -z "$mcp_line" ]; then
+    if claude mcp add --scope user rpcb -- rpcb mcp >/dev/null 2>&1; then
+      ok "registered at user scope (available in every project)"
+    else
+      warn "could not register automatically. Run:"
+      warn "  claude mcp add --scope user rpcb -- rpcb mcp"
+    fi
+  elif printf '%s' "$mcp_line" | grep -q 'rpcb mcp'; then
+    skip "already registered correctly"
   else
-    warn "could not register automatically. Run:"
-    warn "  claude mcp add --scope user rpcb -- rpcb mcp"
+    claude mcp remove --scope user rpcb >/dev/null 2>&1
+    if claude mcp add --scope user rpcb -- rpcb mcp >/dev/null 2>&1; then
+      ok "re-registered (previous entry did not invoke \`rpcb mcp\`)"
+    else
+      warn "could not re-register. Run:"
+      warn "  claude mcp remove --scope user rpcb && claude mcp add --scope user rpcb -- rpcb mcp"
+    fi
   fi
 else
   skip "claude not found — skipping"
@@ -147,17 +161,43 @@ fi
 bold "Registering MCP with Codex"
 if need_cmd codex; then
   python3 - <<'PY'
-import os
+import os, re
+
+OK, SKIP, WARN = '\033[32m✓\033[0m', '\033[90m·\033[0m', '\033[33m!\033[0m'
+BODY = '# rpcb (auto)\n[mcp_servers.rpcb]\ncommand = "rpcb"\nargs = ["mcp"]\n'
+# Matches only what this installer wrote. Consumes line by line to the next
+# section header -- stopping at the first '[' would land inside args = ["mcp"].
+RX = r'\r?\n*# rpcb \(auto\)\r?\n\[mcp_servers\.rpcb\]\r?\n(?:(?!\[)[^\r\n]*(?:\r?\n|$))*'
+
+
+def canonical(base):
+    """The one form this installer ever writes, so a re-run settles at once."""
+    base = base.rstrip()
+    return base + '\n\n' + BODY if base else BODY
+
+
 p = os.path.expanduser('~/.codex/config.toml')
 os.makedirs(os.path.dirname(p), exist_ok=True)
 src = open(p).read() if os.path.exists(p) else ''
-if '[mcp_servers.rpcb]' in src:
-    print('  \033[90m·\033[0m already registered')
+
+if re.search(RX, src):
+    # Rewrite rather than skip: an entry from an older install may name a
+    # different command, and skipping would report success over a stale one.
+    # Compared against what the write would produce, so a correct file is left
+    # untouched rather than rewritten on every run.
+    want = canonical(re.sub(RX, '\n', src))
+    if want == src:
+        print(f'  {SKIP} already registered correctly')
+    else:
+        open(p, 'w').write(want)
+        print(f'  {OK} refreshed [mcp_servers.rpcb] in ~/.codex/config.toml')
+elif '[mcp_servers.rpcb]' in src:
+    # Present but not ours -- hand-written or from another tool. Leave it.
+    print(f'  {WARN} [mcp_servers.rpcb] exists but was not written by this')
+    print(f'  {WARN} installer; left untouched. Check it runs: rpcb mcp')
 else:
-    block = '\n# rpcb (auto)\n[mcp_servers.rpcb]\ncommand = "rpcb"\nargs = ["mcp"]\n'
-    with open(p, 'a') as fh:
-        fh.write(block)
-    print('  \033[32m✓\033[0m appended [mcp_servers.rpcb] to ~/.codex/config.toml')
+    open(p, 'w').write(canonical(src))
+    print(f'  {OK} added [mcp_servers.rpcb] to ~/.codex/config.toml')
 PY
 else
   skip "codex not found — skipping"
@@ -165,19 +205,63 @@ fi
 
 # ----------------------------------------------------------- 5. Claude plugin
 bold "Installing the Claude Code plugin"
+# The marketplace is checked by PATH, not by name. A plain name check is why a
+# second install from a different directory used to leave the plugin serving
+# prompts from the first one while the CLI ran the second -- the two surfaces
+# silently disagreeing about which checkout is live.
+registered_marketplace() {
+  claude plugin marketplace list --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for m in rows if isinstance(rows, list) else []:
+    if m.get("name") == "rpcb":
+        print(m.get("path") or m.get("installLocation") or "")
+        break
+' 2>/dev/null
+}
+
 if need_cmd claude; then
-  if claude plugin marketplace list 2>/dev/null | grep -q 'rpcb'; then
-    skip "marketplace already added"
+  want="$(cd "$INSTALL_DIR" && pwd -P)"
+  have="$(registered_marketplace)"
+  [ -n "$have" ] && [ -d "$have" ] && have="$(cd "$have" && pwd -P)"
+
+  if [ -z "$have" ]; then
+    if claude plugin marketplace list 2>/dev/null | grep -q 'rpcb'; then
+      # Registered, but this claude cannot report the path (older --json).
+      claude plugin marketplace update rpcb >/dev/null 2>&1 \
+        && ok "refreshed marketplace" || skip "marketplace present"
+      warn "could not verify it points at $want — check with:"
+      warn "  claude plugin marketplace list"
+    else
+      claude plugin marketplace add "$INSTALL_DIR" >/dev/null 2>&1 \
+        && ok "added marketplace -> $want" \
+        || warn "could not add marketplace; run: claude plugin marketplace add $INSTALL_DIR"
+    fi
+  elif [ "$have" = "$want" ]; then
+    claude plugin marketplace update rpcb >/dev/null 2>&1 \
+      && ok "marketplace up to date -> $want" \
+      || skip "marketplace points at $want"
   else
-    claude plugin marketplace add "$INSTALL_DIR" >/dev/null 2>&1 \
-      && ok "added marketplace" \
-      || warn "could not add marketplace; run: claude plugin marketplace add $INSTALL_DIR"
+    claude plugin marketplace remove rpcb >/dev/null 2>&1
+    if claude plugin marketplace add "$INSTALL_DIR" >/dev/null 2>&1; then
+      ok "re-pointed marketplace: $have -> $want"
+    else
+      err "could not re-point marketplace from $have to $want"
+      warn "  claude plugin marketplace remove rpcb"
+      warn "  claude plugin marketplace add $INSTALL_DIR"
+    fi
   fi
-  if claude plugin list 2>/dev/null | grep -q '^rpcb'; then
-    skip "plugin already installed"
+
+  if claude plugin list 2>/dev/null | grep -q '^[^a-zA-Z0-9]*rpcb@'; then
+    claude plugin update rpcb@rpcb >/dev/null 2>&1 \
+      && ok "plugin updated (restart to apply)" \
+      || skip "plugin installed"
   else
     claude plugin install rpcb@rpcb >/dev/null 2>&1 \
-      && ok "installed plugin (/review-schematic + skill)" \
+      && ok "installed plugin (/review-schematic, /rpcb-init-rules + skill)" \
       || warn "could not install plugin; run: claude plugin install rpcb@rpcb"
   fi
 else
@@ -187,14 +271,22 @@ fi
 # ------------------------------------------------------------------ 6. verify
 bold "Verifying"
 if need_cmd rpcb; then
-  if printf '%s\n' \
+  tools="$(printf '%s\n' \
       '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}' \
       '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-      | rpcb mcp 2>/dev/null | grep -q design_summary; then
-    ok "MCP server responds with tools"
+      | rpcb mcp 2>/dev/null || true)"
+  # Check a tool from THIS version, not just any tool: an old binary still on
+  # PATH answers design_summary perfectly well and would pass a laxer check.
+  if printf '%s' "$tools" | grep -q design_requirements; then
+    ok "MCP server responds with this version's tools"
+  elif printf '%s' "$tools" | grep -q design_summary; then
+    err "an OLDER rpcb is answering on PATH — $(command -v rpcb)"
+    warn "its MCP tools predate this install. Open a new shell and re-run,"
+    warn "or check for another rpcb earlier in PATH."
   else
     warn "MCP server did not respond as expected"
   fi
+  ok "rpcb $(rpcb --version 2>/dev/null | awk '{print $2}') at $(command -v rpcb)"
 else
   warn "skipped (rpcb not on PATH in this shell)"
 fi
@@ -206,13 +298,17 @@ cat <<'EOF'
   cd <any-kicad-project>
   rpcb summary            # overview
   rpcb check              # run design rules
+  rpcb datasheets         # documents a review needs before it can verify limits
+  rpcb requirements       # plain-English requirements a reviewer must answer
   rpcb pin U2.45          # what a pin connects to
   rpcb review             # launch Claude with the design preloaded
   rpcb review --codex     # same, with Codex
 
-  In Claude Code:  /review-schematic   (or just ask about the board)
-  Project rules:   rpcb init  ->  rpcb.yaml
+  In Claude Code:  /review-schematic  ·  /rpcb-init-rules
+  Project rules:   rpcb init          ->  rpcb.yaml  (blank scaffold)
+                   rpcb init --agent  ->  an agent writes rules for this board
 
-  Restart Claude Code / Codex to pick up the new MCP server.
+  RESTART Claude Code / Codex. The MCP tool list and the plugin's prompts are
+  read at startup, so a running session keeps serving the previous version.
 EOF
 echo

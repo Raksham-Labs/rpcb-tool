@@ -74,5 +74,14 @@ rpcb duel
 - [ ] clean MPN and datasheet fields on the board being reviewed — MPN is the
       join key, and a datasheet link inherited from a borrowed symbol may point
       at a different device entirely.
+      `rpcb datasheets` now reports both gaps: parts with no MPN come back
+      **unidentified**, and schematic links are listed for confirmation rather
+      than trusted. It surfaces the work; filling it in is still manual.
+- [x] the documents themselves, gathered before review — `rpcb datasheets`
+      inventories `vendor/<part>/datasheets/` and `datasheets/`, and the agent
+      prompts stop and ask for whatever is missing instead of reasoning from
+      recall. This is acquisition, not citation: it makes the document present,
+      it does not prove a number was read off it. The citation gate above still
+      needs the referee script.
 - [ ] supply-margin rules reading `parts.yaml`, so the deterministic checker
       catches rail-headroom problems with no LLM in the loop at all

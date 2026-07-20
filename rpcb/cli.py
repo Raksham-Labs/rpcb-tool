@@ -15,12 +15,21 @@ import shutil
 import subprocess
 import sys
 
-from . import extract, rules as rules_mod, views
+from . import (datasheets as datasheets_mod, extract, requirements as reqs_mod,
+               rules as rules_mod, views)
 from .project import ProjectError, load
 
-VERSION = '1.0.0'
-PROMPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           'review_prompt.md')
+VERSION = '1.1.0'
+_HERE = os.path.dirname(os.path.abspath(__file__))
+PROMPT_PATH = os.path.join(_HERE, 'review_prompt.md')
+INIT_PROMPT_PATH = os.path.join(_HERE, 'init_prompt.md')
+
+# A review now files datasheets: it opens PDFs, fetches what is absent and moves
+# documents to their canonical path, so read-only rpcb access is not enough.
+REVIEW_TOOLS = ('Bash(rpcb:*) Bash(mkdir:*) Bash(mv:*) Bash(curl:*) '
+                'Read Write WebFetch WebSearch')
+# Writing rules needs the design and the file being authored, nothing external.
+INIT_TOOLS = 'Bash(rpcb:*) Read Write Edit'
 
 
 def die(msg, code=2):
@@ -116,9 +125,37 @@ def cmd_check(args):
         print(json.dumps(findings, indent=1, ensure_ascii=False))
     else:
         print(rules_mod.render(findings))
+        # Pointer, not a finding. Requirements are judgement; folding prose into
+        # deterministic output is exactly the mixing this tool avoids. But an
+        # unmentioned requirement is one nobody answers, so say it exists.
+        pending = reqs_mod.load(project)
+        if pending:
+            print(f'\n{len(pending)} project requirement(s) need a reviewer\'s '
+                  'verdict — see `rpcb requirements`. No rule evaluates them.')
     if args.strict and any(f['severity'] == 'error' for f in findings):
         return 1
     return 0
+
+
+def cmd_requirements(args):
+    project = load(getattr(args, 'path', None))
+    reqs = reqs_mod.load(project)
+    name = os.path.basename(project.config_path) if project.config_path else None
+    return out(reqs_mod.render(reqs, name), args.json, reqs)
+
+
+def cmd_datasheets(args):
+    """Inventory the documents a review needs before it can verify any limit.
+
+    Exits non-zero while any are absent or any file is unfiled: this is a gate,
+    and a gate that always returns 0 is a suggestion. Unidentified parts do not
+    hold it shut -- their gap is the BOM, not a missing document.
+    """
+    project, m = get_model(args)
+    inv = datasheets_mod.inventory(m, project.root)
+    out(datasheets_mod.render(inv), args.json, inv)
+    blocked = inv['absent'] or inv['unfiled']
+    return 1 if blocked and not args.quiet else 0
 
 
 def cmd_dump(args):
@@ -135,29 +172,24 @@ def cmd_mcp(_args):
     return mcp.serve()
 
 
-def cmd_review(args):
-    """Regenerate the model, then hand the agent a preloaded session.
+def _launch_agent(project, prompt_path, task, tools, args):
+    """Hand an agent a session preloaded with the design and one instruction set.
 
     Extracting BEFORE launching means the agent physically cannot read a stale
     model -- no in-session staleness guard required on this path.
     """
-    project = load(args.path)
     try:
         extract.ensure_fresh(project, verbose=True)
     except extract.ExtractError as exc:
         return die(str(exc))
 
-    with open(PROMPT_PATH, encoding='utf-8') as fh:
+    with open(prompt_path, encoding='utf-8') as fh:
         instructions = fh.read()
 
     context = [f'Project: {project.name}  ({project.root})']
     if project.config_path:
         context.append(f'Project rules: {os.path.basename(project.config_path)}')
     system_prompt = instructions + '\n\n## This session\n\n' + '\n'.join(context) + '\n'
-
-    task = args.task or (
-        'Review this board\'s schematic for real design problems. '
-        'Follow the method and reporting rules above.')
 
     agent = 'codex' if args.codex else 'claude'
     exe = shutil.which(agent)
@@ -173,7 +205,7 @@ def cmd_review(args):
         cmd.append(system_prompt + '\n---\n\n' + task)
     else:
         cmd = [exe, '--append-system-prompt', system_prompt,
-               '--allowedTools', 'Bash(rpcb:*)']
+               '--allowedTools', tools]
         if args.print:
             cmd.append('-p')
         cmd.append(task)
@@ -182,10 +214,19 @@ def cmd_review(args):
         print(f'would run: {agent}')
         print(f'  cwd: {project.root}')
         print(f'  system prompt: {len(system_prompt):,} chars')
+        print(f'  tools: {tools if not args.codex else "(codex default)"}')
         print(f'  task: {task}')
         return 0
 
     return subprocess.call(cmd, cwd=project.root)
+
+
+def cmd_review(args):
+    task = args.task or (
+        'Review this board\'s schematic for real design problems. '
+        'Gather datasheets first, as the instructions require. '
+        'Follow the method and reporting rules above.')
+    return _launch_agent(load(args.path), PROMPT_PATH, task, REVIEW_TOOLS, args)
 
 
 def cmd_init(args):
@@ -193,6 +234,22 @@ def cmd_init(args):
     path = os.path.join(project.root, 'rpcb.yaml')
     if os.path.exists(path) and not args.force:
         return die(f'{os.path.basename(path)} already exists (use --force)')
+
+    if args.agent or args.codex:
+        # The scaffold is a blank form; this reads the board and fills it in.
+        # Writing nothing is a valid outcome and the prompt says so -- a file of
+        # rules that can never fire is worse than no file, because the next
+        # reader believes the board is covered.
+        task = ('Study this board and write rpcb.yaml with rules that assert what '
+                'is true of it. Follow the method above. If nothing is worth '
+                'asserting, write no file and say why.')
+        return _launch_agent(project, INIT_PROMPT_PATH, task, INIT_TOOLS, args)
+
+    if args.dry_run:
+        print(f'would write {os.path.relpath(path, project.root)} (scaffold)')
+        print(f'project: {project.name}')
+        return 0
+
     with open(path, 'w', encoding='utf-8') as fh:
         fh.write(f"""# rpcb rules for {project.name}
 #
@@ -226,12 +283,38 @@ rules: []
 # --- tuning example: silence a built-in you have investigated ---
 #  - id: PWR001
 #    ignore_nets: [VSYS]        # fed from a connector, not an on-board regulator
+
+
+# REQUIREMENTS — plain English, for what no rule can evaluate.
+#
+#   rules:         mechanical, evaluated by the engine, same answer every run
+#   requirements:  prose, evaluated by a reviewer, answered with evidence
+#
+# A review must return an explicit verdict for EVERY requirement in a table --
+# MET, NOT MET, AT RISK or UNVERIFIABLE -- and may never silently skip one. Use
+# these for intent a check kind cannot express. Do not use them for datasheet
+# limits; those belong in a review with the document open.
+#
+#   `rpcb requirements`   what is declared, and the verdicts expected
+
+requirements: []
+
+#  - id: REQ001
+#    severity: error
+#    must: >
+#      The MCU must be able to put the CAN transceiver into silent mode.
+#    why: >
+#      Field units share the bus with a diagnostic tool; a stuck transmitter
+#      takes the whole bus down and cannot be isolated in the field.
+#    refs: [U2, U6]             # optional: where to start looking
+#    nets: [CANH, CANL]         # optional
 """)
     print(f'wrote {os.path.relpath(path, project.root)}  (optional — built-in '
           f'rules run without it)')
     print(f'project: {project.name}')
     print(f"sheets : {[os.path.basename(p) for p in project.schematics]}")
-    print('next   : rpcb rules --kinds')
+    print('next   : rpcb rules --kinds   (or `rpcb init --agent` to have an '
+          'agent write real rules)')
     return 0
 
 
@@ -303,6 +386,13 @@ def build_parser():
     p.add_argument('--strict', action='store_true',
                    help='exit 1 if any error-severity finding')
 
+    sp.add_parser('requirements',
+                  help='plain-English requirements a reviewer must answer')
+
+    p = sp.add_parser('datasheets', help='which parts need a datasheet, and which are here')
+    p.add_argument('--quiet', action='store_true',
+                   help='inventory only; do not exit 1 when any are missing')
+
     p = sp.add_parser('dump', help='raw JSON section')
     p.add_argument('section', nargs='?', default='all')
 
@@ -318,6 +408,13 @@ def build_parser():
 
     p = sp.add_parser('init', help='write rpcb.yaml for this project')
     p.add_argument('--force', action='store_true')
+    p.add_argument('--agent', action='store_true',
+                   help='have an agent study the board and write real rules, '
+                        'instead of writing a blank scaffold')
+    p.add_argument('--codex', action='store_true',
+                   help='use Codex instead of Claude (implies --agent)')
+    p.add_argument('-p', '--print', action='store_true', help='headless')
+    p.add_argument('--dry-run', action='store_true')
 
     p = sp.add_parser('rules', help='list active rules')
     p.add_argument('--kinds', action='store_true',
@@ -331,6 +428,7 @@ HANDLERS = {
     'summary': cmd_summary, 'component': cmd_component, 'net': cmd_net,
     'pin': cmd_pin, 'trace': cmd_trace, 'find': cmd_find, 'notes': cmd_notes,
     'text': cmd_text, 'check': cmd_check, 'dump': cmd_dump,
+    'datasheets': cmd_datasheets, 'requirements': cmd_requirements,
     'extract': cmd_extract, 'review': cmd_review, 'init': cmd_init,
     'rules': cmd_rules, 'mcp': cmd_mcp,
 }
@@ -346,7 +444,8 @@ def main(argv=None):
         return HANDLERS[args.cmd](args)
     except ProjectError as exc:
         return die(str(exc))
-    except (extract.ExtractError, rules_mod.RulesError) as exc:
+    except (extract.ExtractError, rules_mod.RulesError,
+            reqs_mod.RequirementsError) as exc:
         return die(str(exc))
     except views.NotFound as exc:
         return die(str(exc))

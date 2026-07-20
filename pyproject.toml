@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rpcb"
-version = "1.0.0"
+version = "1.1.0"
 description = "Feed KiCad schematics to LLMs: resolved netlist model, rules, MCP server, agent launcher"
 readme = "README.md"
 requires-python = ">=3.9"

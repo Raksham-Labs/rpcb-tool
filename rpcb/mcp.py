@@ -11,9 +11,11 @@ tool. Every call re-hashes the sources and regenerates when they have changed.
 Protocol note: stdout carries JSON-RPC ONLY. All logging goes to stderr.
 """
 import json
+import os
 import sys
 
-from . import extract, rules as rules_mod, views
+from . import (datasheets as datasheets_mod, extract, requirements as reqs_mod,
+               rules as rules_mod, views)
 from .project import ProjectError, load
 
 SUPPORTED_PROTOCOLS = {'2024-11-05', '2025-03-26', '2025-06-18'}
@@ -78,6 +80,22 @@ TOOL_DEFS = [
      'inputSchema': {'type': 'object',
                      'properties': {'severity': {'type': 'string',
                                                  'enum': ['error', 'warn', 'info']}}}},
+    {'name': 'design_requirements',
+     'description': ('Plain-English requirements this project has declared in '
+                     'rpcb.yaml. No rule evaluates these -- they are judgement, and '
+                     'you are the one answering them. A review MUST return an '
+                     'explicit verdict for EVERY requirement in a table, with '
+                     'evidence, and must never silently omit one.'),
+     'inputSchema': {'type': 'object', 'properties': {}}},
+    {'name': 'design_datasheets',
+     'description': ('Which parts need a datasheet, the canonical path each document '
+                     'belongs at, and which files are unfiled. RUN THIS BEFORE '
+                     'asserting any electrical limit. It reports paths only and does '
+                     'NOT look inside any file -- open each PDF yourself to confirm '
+                     'it names the right device, move or rename it to the canonical '
+                     'path, fetch what is absent, and ask the user for the rest '
+                     'before reviewing. Also lists BOM gaps to report back.'),
+     'inputSchema': {'type': 'object', 'properties': {}}},
     {'name': 'design_full_text',
      'description': ('The ENTIRE design as compact text: notes, component table, '
                      'every pin of every component, and all nets (~6k tokens). Use '
@@ -125,6 +143,13 @@ def dispatch(name, args):
         if sev:
             findings = [f for f in findings if f['severity'] == sev]
         return banner + rules_mod.render(findings)
+    if name == 'design_requirements':
+        cfg = (os.path.basename(project.config_path)
+               if project.config_path else None)
+        return banner + reqs_mod.render(reqs_mod.load(project), cfg)
+    if name == 'design_datasheets':
+        return banner + datasheets_mod.render(
+            datasheets_mod.inventory(model, project.root))
     if name == 'design_full_text':
         return banner + views.full_text(
             model, include_unconnected=bool(args.get('include_unconnected')))

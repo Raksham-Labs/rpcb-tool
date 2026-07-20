@@ -234,14 +234,28 @@ if ($kicadCli) {
 Write-Head 'Registering MCP with Claude Code'
 if (Test-Cmd 'claude') {
     $existing = & claude mcp list 2>$null
-    if ($existing -match '^rpcb') {
-        Write-Skip 'already registered'
-    } else {
+    # Checked for CORRECTNESS, not presence. An entry from an older install
+    # points at whatever that install used; "already registered" would report
+    # success while the wrong thing stayed wired up.
+    $line = @($existing) -match '^rpcb:'
+    if (-not $line) {
         & claude mcp add --scope user rpcb -- rpcb mcp 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Ok 'registered at user scope (available in every project)'
         } else {
             Write-Warn 'could not register automatically. Run:'
+            Write-Warn '  claude mcp add --scope user rpcb -- rpcb mcp'
+        }
+    } elseif ($line -match 'rpcb mcp') {
+        Write-Skip 'already registered correctly'
+    } else {
+        & claude mcp remove --scope user rpcb 2>&1 | Out-Null
+        & claude mcp add --scope user rpcb -- rpcb mcp 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok 're-registered (previous entry did not invoke `rpcb mcp`)'
+        } else {
+            Write-Warn 'could not re-register. Run:'
+            Write-Warn '  claude mcp remove --scope user rpcb'
             Write-Warn '  claude mcp add --scope user rpcb -- rpcb mcp'
         }
     }
@@ -254,13 +268,39 @@ Write-Head 'Registering MCP with Codex'
 if (Test-Cmd 'codex') {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $CodexConfig) | Out-Null
     $src = if (Test-Path $CodexConfig) { Get-Content $CodexConfig -Raw } else { '' }
-    if ($src -match '\[mcp_servers\.rpcb\]') {
-        Write-Skip 'already registered'
+    $body = "# rpcb (auto)`n[mcp_servers.rpcb]`ncommand = `"rpcb`"`nargs = [`"mcp`"]`n"
+    # Matches only what this installer wrote, line by line to the next section
+    # header -- stopping at the first '[' would land inside args = ["mcp"].
+    $rx = '\r?\n*# rpcb \(auto\)\r?\n\[mcp_servers\.rpcb\]\r?\n(?:(?!\[)[^\r\n]*(?:\r?\n|$))*'
+    # No BOM on any write: it trips some TOML parsers.
+    $enc = New-Object System.Text.UTF8Encoding($false)
+
+    # The one form this installer ever writes, so a re-run settles at once.
+    function Get-Canonical($base) {
+        $b = $base.TrimEnd()
+        if ($b) { return $b + "`n`n" + $body }
+        return $body
+    }
+
+    if ($src -match $rx) {
+        # Rewrite rather than skip: an entry from an older install may name a
+        # different command, and skipping would report success over a stale one.
+        # Compared against what the write would produce, so a correct file is
+        # left untouched rather than rewritten on every run.
+        $want = Get-Canonical ([regex]::Replace($src, $rx, "`n"))
+        if ($want -eq $src) {
+            Write-Skip 'already registered correctly'
+        } else {
+            [System.IO.File]::WriteAllText($CodexConfig, $want, $enc)
+            Write-Ok "refreshed [mcp_servers.rpcb] in $CodexConfig"
+        }
+    } elseif ($src -match '\[mcp_servers\.rpcb\]') {
+        # Present but not ours -- hand-written or from another tool. Leave it.
+        Write-Warn '[mcp_servers.rpcb] exists but was not written by this'
+        Write-Warn 'installer; left untouched. Check it runs: rpcb mcp'
     } else {
-        $block = "`n# rpcb (auto)`n[mcp_servers.rpcb]`ncommand = `"rpcb`"`nargs = [`"mcp`"]`n"
-        # No BOM: it trips some TOML parsers.
-        [System.IO.File]::AppendAllText($CodexConfig, $block, (New-Object System.Text.UTF8Encoding($false)))
-        Write-Ok "appended [mcp_servers.rpcb] to $CodexConfig"
+        [System.IO.File]::WriteAllText($CodexConfig, (Get-Canonical $src), $enc)
+        Write-Ok "added [mcp_servers.rpcb] to $CodexConfig"
     }
 } else {
     Write-Skip 'codex not found -- skipping'
@@ -269,20 +309,60 @@ if (Test-Cmd 'codex') {
 # ------------------------------------------------------------- 5. Claude plugin
 Write-Head 'Installing the Claude Code plugin'
 if (Test-Cmd 'claude') {
-    $markets = & claude plugin marketplace list 2>$null
-    if ($markets -match 'rpcb') {
-        Write-Skip 'marketplace already added'
-    } else {
-        & claude plugin marketplace add $InstallDir 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Ok 'added marketplace' }
-        else { Write-Warn "could not add marketplace; run: claude plugin marketplace add $InstallDir" }
+    # The marketplace is checked by PATH, not by name. A plain name check is why
+    # a second install from a different directory used to leave the plugin
+    # serving prompts from the first one while the CLI ran the second.
+    $want = (Resolve-Path $InstallDir).Path
+    $have = $null
+    $json = & claude plugin marketplace list --json 2>$null
+    if ($json) {
+        try {
+            $row = @($json | ConvertFrom-Json) | Where-Object { $_.name -eq 'rpcb' }
+            if ($row) {
+                $p = if ($row.path) { $row.path } else { $row.installLocation }
+                if ($p -and (Test-Path $p)) { $have = (Resolve-Path $p).Path }
+            }
+        } catch { $have = $null }
     }
+
+    if (-not $have) {
+        $markets = & claude plugin marketplace list 2>$null
+        if (@($markets) -match 'rpcb') {
+            # Registered, but this claude cannot report the path (older --json).
+            & claude plugin marketplace update rpcb 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Ok 'refreshed marketplace' }
+            else { Write-Skip 'marketplace present' }
+            Write-Warn "could not verify it points at $want -- check with:"
+            Write-Warn '  claude plugin marketplace list'
+        } else {
+            & claude plugin marketplace add $InstallDir 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Ok "added marketplace -> $want" }
+            else { Write-Warn "could not add marketplace; run: claude plugin marketplace add $InstallDir" }
+        }
+    } elseif ($have -eq $want) {
+        & claude plugin marketplace update rpcb 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-Ok "marketplace up to date -> $want" }
+        else { Write-Skip "marketplace points at $want" }
+    } else {
+        & claude plugin marketplace remove rpcb 2>&1 | Out-Null
+        & claude plugin marketplace add $InstallDir 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "re-pointed marketplace: $have -> $want"
+        } else {
+            Write-Fail "could not re-point marketplace from $have to $want"
+            Write-Warn '  claude plugin marketplace remove rpcb'
+            Write-Warn "  claude plugin marketplace add $InstallDir"
+        }
+    }
+
     $plugins = & claude plugin list 2>$null
-    if ($plugins -match '^rpcb') {
-        Write-Skip 'plugin already installed'
+    if (@($plugins) -match 'rpcb@') {
+        & claude plugin update rpcb@rpcb 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-Ok 'plugin updated (restart to apply)' }
+        else { Write-Skip 'plugin installed' }
     } else {
         & claude plugin install rpcb@rpcb 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Ok 'installed plugin (/review-schematic + skill)' }
+        if ($LASTEXITCODE -eq 0) { Write-Ok 'installed plugin (/review-schematic, /rpcb-init-rules + skill)' }
         else { Write-Warn 'could not install plugin; run: claude plugin install rpcb@rpcb' }
     }
 } else {
@@ -297,8 +377,19 @@ if (Test-Cmd 'rpcb') {
         '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
     )
     $reply = $handshake | & rpcb mcp 2>$null
-    if ($reply -match 'design_summary') { Write-Ok 'MCP server responds with tools' }
-    else { Write-Warn 'MCP server did not respond as expected' }
+    # Check a tool from THIS version, not just any tool: an old binary still on
+    # PATH answers design_summary perfectly well and would pass a laxer check.
+    if ($reply -match 'design_requirements') {
+        Write-Ok "MCP server responds with this version's tools"
+    } elseif ($reply -match 'design_summary') {
+        Write-Fail "an OLDER rpcb is answering on PATH -- $((Get-Command rpcb).Source)"
+        Write-Warn 'its MCP tools predate this install. Open a new terminal and'
+        Write-Warn 're-run, or check for another rpcb earlier in PATH.'
+    } else {
+        Write-Warn 'MCP server did not respond as expected'
+    }
+    $v = (& rpcb --version 2>$null) -split '\s+' | Select-Object -Last 1
+    Write-Ok "rpcb $v at $((Get-Command rpcb).Source)"
 } else {
     Write-Warn 'skipped (rpcb not on PATH in this shell)'
 }
@@ -310,14 +401,18 @@ Write-Host @'
   cd <any-kicad-project>
   rpcb summary            # overview
   rpcb check              # run design rules
+  rpcb datasheets         # documents a review needs before it can verify limits
+  rpcb requirements       # plain-English requirements a reviewer must answer
   rpcb pin U2.45          # what a pin connects to
   rpcb review             # launch Claude with the design preloaded
   rpcb review --codex     # same, with Codex
 
-  In Claude Code:  /review-schematic   (or just ask about the board)
-  Project rules:   rpcb init  ->  rpcb.yaml
+  In Claude Code:  /review-schematic  ·  /rpcb-init-rules
+  Project rules:   rpcb init          ->  rpcb.yaml  (blank scaffold)
+                   rpcb init --agent  ->  an agent writes rules for this board
 
-  Restart Claude Code / Codex to pick up the new MCP server.
+  RESTART Claude Code / Codex. The MCP tool list and the plugin's prompts are
+  read at startup, so a running session keeps serving the previous version.
   Open a new terminal if PATH or KICAD_CLI changed.
 '@
 Write-Host ''

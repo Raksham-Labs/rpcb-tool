@@ -47,6 +47,8 @@ rpcb net +3.3V                # every pin on a net
 rpcb pin U2.45                # what one pin connects to (~50 tokens)
 rpcb trace U2.45 --hops 3     # walk outward through series passives
 rpcb find CAN                 # regex over refs, values, MPNs, nets, notes
+rpcb datasheets               # which parts need a datasheet, and which are here
+rpcb requirements             # project requirements a reviewer must answer
 rpcb text                     # the entire design, compact (~6k tokens)
 
 rpcb review                   # launch Claude with the design preloaded
@@ -57,8 +59,8 @@ All accept `--json`. No configuration: the project is found by walking up to the
 nearest `.kicad_pro`, and the sheet hierarchy is discovered by following
 `Sheetfile` references.
 
-In Claude Code you also get `/review-schematic`, a `schematic-review` skill, and
-`design_*` MCP tools.
+In Claude Code you also get `/review-schematic`, `/rpcb-init-rules`, a
+`schematic-review` skill, and `design_*` MCP tools.
 
 ## Why connectivity comes from KiCad
 
@@ -71,6 +73,58 @@ so the netlist looked perfectly valid while being wrong.
 A confidently-wrong netlist is worse than none. `kicad-cli sch export netlist`
 is authoritative; the schematic is parsed only for what the netlist drops —
 text notes, `dnp`, `in_bom`.
+
+## Datasheets
+
+A rule can prove a pin is floating. It cannot tell you whether 4.6V clears a
+part's minimum — that needs the document. So a review is gated on having them:
+
+```bash
+rpcb datasheets      # exits non-zero while anything is absent or unfiled
+```
+
+Every part gets one canonical path, derived from its MPN:
+
+```
+vendor/<part>/datasheets/<MPN>.pdf   primary — beside that part's symbols,
+                                     footprints and 3D models
+datasheets/<MPN>.pdf                 secondary — a document covering several
+                                     parts, one belonging to no single
+                                     component, or where no vendor folder
+                                     matches
+```
+
+Parts route to a vendor folder by symbol library
+(`vendor/can_transceiver/CANBUS.kicad_sym` claims `CANBUS:MCP2562`) or by folder
+name prefixing the part number (`vendor/stm32g0` claims `STM32G0B1CCU6`).
+Neither can invent a folder that does not exist, so where nothing matches the
+shared directory is the honest answer rather than a guessed name.
+
+### The tool does not open the files
+
+`filed` means only that a file sits at the canonical path. It is not a claim
+about contents — a zero-byte file with the right name reports `filed`.
+
+This was deliberate. An earlier version matched part numbers against filenames
+and called that *present*, which passed both an empty file and one containing
+the wrong device. **A check that only reads names accepts anything named
+correctly**, so it was removed rather than tuned. What remains is mechanical and
+therefore trustworthy: which parts need a document, where each belongs, whether
+a file is there, and which files are unfiled.
+
+Confirming the device, renaming, moving and fetching are the agent's work. The
+prompts require it to open every file, move anything misnamed or misplaced to
+its canonical path, fetch what is absent, and **stop and ask** for the rest
+rather than reviewing from recall — a partial review reads as a complete one.
+
+Parts with no MPN and no part number in Value come back **unidentified**: there
+is nothing to look up and no canonical name to file under, so the fix is the
+BOM, not the document. They do not hold the gate shut, or an unlabelled 2-pin
+header would fail it forever. `rpcb datasheets` also lists BOM gaps — missing
+MPN, missing manufacturer — for the agent to report back.
+
+Connectivity questions need no datasheet. The gate applies the moment a claim
+turns on a voltage, current, timing or thermal number.
 
 ## Facts vs judgement
 
@@ -98,8 +152,16 @@ to use rpcb — delete it any time and `rpcb check` still works.
 ```bash
 rpcb rules            # what is active, and where each rule comes from
 rpcb rules --kinds    # every check kind, its parameters, a worked example
-rpcb init             # scaffold rpcb.yaml, when you want one
+rpcb init             # scaffold a blank rpcb.yaml, when you want one
+rpcb init --agent     # have an agent study the board and write real rules
 ```
+
+`rpcb init` writes a blank form. `rpcb init --agent` launches Claude (or Codex,
+with `--codex`) against the board with instructions for writing tripwires: read
+the designer's notes, check what the built-ins already catch, and assert only
+what is true of *this* design. It is told to write **no file** when nothing is
+worth asserting — a ruleset that can never fire is worse than none, because the
+next reader believes the board is covered.
 
 `rpcb rules --kinds` is the authoritative reference. It is generated from the
 engine itself, so it cannot drift from what the code accepts. A rule with an
@@ -119,6 +181,58 @@ rules:
 ```
 
 Add `enabled: false` to silence a built-in entirely.
+
+### Requirements — plain English, for what no rule can express
+
+```
+rules:         mechanical, evaluated by the engine, same answer every run
+requirements:  prose, evaluated by a reviewer, answered with evidence
+```
+
+Plenty of what matters about a board has no check kind. "The MCU must be able to
+put the CAN transceiver in silent mode" is perfectly checkable — but only by
+someone reading the design, and a rule that pattern-matched net names to fake it
+would fire on the name rather than the intent, which is worse than no rule
+because it looks like coverage.
+
+```yaml
+requirements:
+  - id: REQ001
+    severity: error              # orders the write-up, not the verdict
+    must: >                      # an assertion, not a topic
+      The MCU must be able to put the CAN transceiver into silent mode.
+    why: >
+      Field units share the bus with a diagnostic tool; a stuck transmitter
+      takes the whole bus down and cannot be isolated in the field.
+    refs: [U2, U6]               # optional: where to start looking
+    nets: [CANH, CANL]           # optional
+```
+
+```bash
+rpcb requirements     # what is declared, and the verdicts expected
+```
+
+`must` has to be something the board either satisfies or does not. "Check the
+CAN bus" cannot be answered; the example above can. A malformed entry — no `id`,
+no `must`, a duplicate id, an invalid severity — fails loudly rather than being
+skipped.
+
+Every review must return an explicit verdict for **every** requirement, in a
+table:
+
+| id | requirement | verdict | evidence |
+|---|---|---|---|
+| REQ001 | MCU can put the transceiver in silent mode | MET | `U6.8 (S)` → `CAN_SILENT` → `U2.31`, driven |
+| REQ002 | Every exposed pin has ESD protection | NOT MET | `J4.3` → `SWDIO` reaches `U2.34` with no TVS |
+
+**MET** needs specific evidence — refs, pins, nets, a datasheet page; "looks
+fine" is not evidence. **AT RISK** names the assumption it depends on.
+**UNVERIFIABLE** says what would settle it — the PCB, a datasheet, the
+designer's intent — which is an honest answer where guessing is not.
+
+The table is the point. A requirement missing from a report reads as passed, so
+omitting one is the failure this exists to prevent. `rpcb check` will not
+evaluate requirements — it only tells you how many are waiting on a verdict.
 
 ### Tripwires vs silencing
 
@@ -175,9 +289,11 @@ whenever a schematic's SHA-256 changes, so an agent can never read a stale model
 - **Physical proximity is invisible.** The decoupling rule counts caps on a
   rail; it cannot tell whether one sits near the pin it serves. That needs the
   PCB.
-- **Datasheet limits are not modelled.** Rules cannot check "is 4.6V enough for
-  this part" — see [docs/roadmap-adversarial-review.md](docs/roadmap-adversarial-review.md)
-  for the planned parts library.
+- **Datasheet limits are not modelled.** `rpcb datasheets` gets the documents
+  in front of the reviewer, but no rule reads them — "is 4.6V enough for this
+  part" is still a judgement call, not a check. See
+  [docs/roadmap-adversarial-review.md](docs/roadmap-adversarial-review.md) for
+  the planned parts library that would make it mechanical.
 - **No `no_connect` flags** in a design means an unwired pin is
   indistinguishable from a deliberately-unused one.
 
@@ -188,6 +304,8 @@ rpcb/
   sexpr.py            S-expression reader (no dependencies)
   project.py          .kicad_pro discovery + sheet-hierarchy walk
   extract.py          netlist + schematic -> design.json
+  datasheets.py       which parts need a datasheet, and which are on disk
+  requirements.py     plain-English requirements a reviewer must answer
   views.py            text renderers (return strings; shared by CLI and MCP)
   rules/
     spec.py           what a rule may contain (CHECK_KINDS)
@@ -197,6 +315,7 @@ rpcb/
   mcp.py              MCP stdio server (JSON-RPC 2.0, no SDK)
   cli.py              argparse front end + agent launcher
   review_prompt.md    instructions injected by `rpcb review`
+  init_prompt.md      instructions injected by `rpcb init --agent`
 plugins/rpcb/         Claude Code plugin (thin: no Python)
 install.sh            macOS / Linux
 install.ps1           Windows
