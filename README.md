@@ -11,13 +11,28 @@ answers about what is wired to what. `rpcb` hands it a resolved netlist instead:
 
 ## Install
 
+macOS / Linux:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Raksham-Labs/rpcb-tool/main/install.sh | bash
 ```
 
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Raksham-Labs/rpcb-tool/main/install.ps1 | iex
+```
+
 Installs the CLI, registers the MCP server with **both** Claude Code and Codex,
-and installs the Claude Code plugin. Idempotent; `./install.sh --uninstall`
-reverses it. Requires Python 3.9+ and KiCad (for `kicad-cli`).
+and installs the Claude Code plugin. Idempotent; `./install.sh --uninstall` /
+`.\install.ps1 -Uninstall` reverses it. Requires Python 3.9+ and KiCad (for
+`kicad-cli`).
+
+Use `install.ps1` in a native PowerShell prompt, not `install.sh` under Git Bash
+— Windows venvs use `Scripts\` rather than `bin/`, and `python3` there is
+usually the Microsoft Store stub. Under WSL, use `install.sh` and install KiCad
+and the `claude` CLI inside WSL too, since the MCP server shells out to
+`kicad-cli`.
 
 ## Use
 
@@ -183,7 +198,8 @@ rpcb/
   cli.py              argparse front end + agent launcher
   review_prompt.md    instructions injected by `rpcb review`
 plugins/rpcb/         Claude Code plugin (thin: no Python)
-install.sh
+install.sh            macOS / Linux
+install.ps1           Windows
 ```
 
 The plugin contains **zero Python** — it points at `rpcb` on PATH, so Claude and

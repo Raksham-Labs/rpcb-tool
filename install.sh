@@ -21,6 +21,18 @@ err()  { printf '  \033[31m✗\033[0m %s\n' "$1"; }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
+# ------------------------------------------------------------------- windows
+# Git Bash / MSYS2 / Cygwin: Windows venvs use Scripts\ not bin/, `python3` is
+# usually the Store stub, and ~/.local/bin is not on the Windows PATH. WSL
+# reports Linux and falls through to the normal path, as it should.
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    err "this is a Windows shell -- use install.ps1 instead:"
+    err "  irm https://raw.githubusercontent.com/Raksham-Labs/rpcb-tool/main/install.ps1 | iex"
+    exit 1
+    ;;
+esac
+
 # ---------------------------------------------------------------- uninstall
 if [ "${1:-}" = "--uninstall" ]; then
   bold "Uninstalling rpcb"
@@ -31,9 +43,12 @@ if [ "${1:-}" = "--uninstall" ]; then
   python3 - <<'PY' 2>/dev/null && ok "removed Codex MCP entry"
 import os, re
 p = os.path.expanduser('~/.codex/config.toml')
+# Consume the block line by line, stopping at the next section header. Matching
+# to the next '[' would stop inside `args = ["mcp"]` and orphan that fragment.
+RX = r'\r?\n*# rpcb \(auto\)\r?\n\[mcp_servers\.rpcb\]\r?\n(?:(?!\[)[^\r\n]*(?:\r?\n|$))*'
 if os.path.exists(p):
     s = open(p).read()
-    out = re.sub(r'\n*# rpcb \(auto\)\n\[mcp_servers\.rpcb\][^\[]*', '\n', s)
+    out = re.sub(RX, '\n', s)
     if out != s:
         open(p, 'w').write(out)
 PY
