@@ -15,7 +15,7 @@ dependencies = ["pyyaml>=5.1"]
 rpcb = "rpcb.cli:main"
 
 [tool.setuptools]
-packages = ["rpcb"]
+packages = ["rpcb", "rpcb.rules"]
 
 [tool.setuptools.package-data]
-rpcb = ["*.yaml", "*.md"]
+rpcb = ["*.yaml", "*.md", "rules/*.yaml"]

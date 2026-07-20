@@ -174,10 +174,13 @@ rpcb/
   project.py          .kicad_pro discovery + sheet-hierarchy walk
   extract.py          netlist + schematic -> design.json
   views.py            text renderers (return strings; shared by CLI and MCP)
-  rules.py            declarative rules engine
+  rules/
+    spec.py           what a rule may contain (CHECK_KINDS)
+    loader.py         built-ins merged with the project's optional rpcb.yaml
+    engine.py         evaluation and rendering
+    builtin.yaml      rules shipped with the tool
   mcp.py              MCP stdio server (JSON-RPC 2.0, no SDK)
   cli.py              argparse front end + agent launcher
-  rules_builtin.yaml  rules shipped with the tool
   review_prompt.md    instructions injected by `rpcb review`
 plugins/rpcb/         Claude Code plugin (thin: no Python)
 install.sh
