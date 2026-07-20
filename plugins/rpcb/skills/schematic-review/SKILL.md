@@ -69,8 +69,47 @@ missing MPN.
 
 Close with what checks out, so silence on those reads as deliberate.
 
-## Project-specific rules
+## Writing rules (only when the user asks)
 
-Board-specific rules live in `rpcb.yaml` at the project root and can also
-override or silence built-ins by id. `rpcb rules` lists what is active;
-`rpcb init` scaffolds the file.
+`rpcb check` runs built-in rules with **no configuration**. A project needs no
+`rpcb.yaml` at all — never create one unprompted.
+
+When the user does want a rule, this is the workflow:
+
+```
+rpcb rules            # what is active, and where each rule comes from
+rpcb rules --kinds    # every check kind, its parameters, a worked example
+rpcb init             # scaffold rpcb.yaml (only if it does not exist)
+```
+
+`rpcb rules --kinds` is the authoritative reference — read it before writing a
+rule rather than guessing parameter names. A rule with an unknown `check` or a
+bad `severity` fails loudly with a pointer back to that command.
+
+A rule is a YAML mapping under `rules:` in `rpcb.yaml`:
+
+```yaml
+rules:
+  - id: CAN001                 # reuse a built-in id to override it
+    severity: error            # error | warn | info
+    check: net_must_contain    # see rpcb rules --kinds
+    net: CANH
+    must_contain: [R2]
+    why: CAN needs termination; 120R belongs only at physical bus ends.
+```
+
+### Prefer tripwires over silencing
+
+A **tripwire** asserts something true of this board. It stays silent while
+correct and fires when a later edit breaks it — `net_must_contain` and
+`net_pin_count` exist for this. Producing no findings today is the point, not a
+sign it is useless.
+
+**Silencing** (`ignore_nets`, `ignore_refs_matching`, `enabled: false`) removes
+information. Every ignore is a place a real problem can hide later. Only propose
+one for a finding that has actually been investigated and understood, and say in
+`why` what was concluded — a bare ignore with no reasoning is worse than the
+noise it removes.
+
+Before adding an ignore, check whether it would ever fire. An ignore that can
+never match is dead config that misleads whoever reads it next.

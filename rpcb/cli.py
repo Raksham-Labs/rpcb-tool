@@ -196,35 +196,69 @@ def cmd_init(args):
     with open(path, 'w', encoding='utf-8') as fh:
         fh.write(f"""# rpcb rules for {project.name}
 #
-# Adds board-specific rules, and can override or silence built-ins by reusing
-# their id (see `rpcb rules --list`).
+# THIS FILE IS OPTIONAL. rpcb's built-in rules run with or without it -- delete
+# it any time and `rpcb check` still works. It exists for two things:
+#
+#   1. TRIPWIRES — assert something true of THIS board. A tripwire stays silent
+#      while correct and fires if a later edit breaks it. This is the main
+#      reason to keep the file.
+#
+#   2. TUNING — override or silence a built-in by reusing its id.
+#
+# Every ignore is a place a real problem can hide, so prefer tripwires over
+# silencing, and only silence a finding you have actually investigated.
+#
+#   `rpcb rules`          what is active right now
+#   `rpcb rules --kinds`  every check kind, its parameters, and an example
 #
 # Findings are prompts to look, not verdicts.
 
 rules: []
+
+# --- tripwire example: fires only if someone removes the termination ---
 #  - id: CAN001
 #    severity: error
 #    check: net_must_contain
 #    net: CANH
 #    must_contain: [R2]
-#    why: CAN needs termination; confirm 120R only at physical bus ends.
+#    why: CAN needs termination; 120R belongs only at physical bus ends.
+
+# --- tuning example: silence a built-in you have investigated ---
+#  - id: PWR001
+#    ignore_nets: [VSYS]        # fed from a connector, not an on-board regulator
 """)
-    print(f'wrote {os.path.relpath(path, project.root)}')
+    print(f'wrote {os.path.relpath(path, project.root)}  (optional — built-in '
+          f'rules run without it)')
     print(f'project: {project.name}')
     print(f"sheets : {[os.path.basename(p) for p in project.schematics]}")
+    print('next   : rpcb rules --kinds')
     return 0
 
 
 def cmd_rules(args):
+    if args.kinds:
+        print(rules_mod.render_kinds())
+        return 0
+
     project = None
     try:
         project = load(args.path)
     except ProjectError:
         pass
-    for rule in rules_mod.load_rules(project):
-        src = 'project' if project and project.config_path and False else 'builtin'
-        print(f"{rule['id']:<10}{rule['severity']:<7}{rule['check']:<20}"
-              f"{' '.join((rule.get('why') or '').split())[:60]}")
+
+    active = rules_mod.load_rules(project, include_disabled=True)
+    cfg = project.config_path if project else None
+    print(f"project rules: {os.path.basename(cfg) if cfg else 'none (optional)'}")
+    print()
+    print(f"{'id':<10}{'severity':<10}{'check':<20}{'source':<18}status")
+    for rule in active:
+        status = 'disabled' if rule.get('enabled') is False else 'active'
+        print(f"{rule['id']:<10}{rule['severity']:<10}{rule['check']:<20}"
+              f"{rule['_source']:<18}{status}")
+    print()
+    print('`rpcb rules --kinds` documents how to write one.')
+    if not cfg:
+        print('`rpcb init` creates an optional rpcb.yaml for board-specific rules.')
     return 0
 
 
@@ -285,7 +319,9 @@ def build_parser():
     p = sp.add_parser('init', help='write rpcb.yaml for this project')
     p.add_argument('--force', action='store_true')
 
-    sp.add_parser('rules', help='list active rules')
+    p = sp.add_parser('rules', help='list active rules')
+    p.add_argument('--kinds', action='store_true',
+                   help='document how to write a rule')
     sp.add_parser('mcp', help='run the MCP stdio server')
 
     return ap

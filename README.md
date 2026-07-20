@@ -69,30 +69,75 @@ verdicts** — a prompt to look.
 
 ## Rules
 
-Built-ins ship with rpcb. Project rules go in `rpcb.yaml` at the project root
-(`rpcb init` scaffolds it), and may add rules or override/silence built-ins by
-reusing an `id`:
+Built-in rules run in **any** KiCad project with no configuration:
+
+```bash
+cd any-kicad-project && rpcb check      # works immediately, no setup
+```
+
+### `rpcb.yaml` is optional
+
+A project file adds board-specific rules or tunes built-ins. You never need one
+to use rpcb — delete it any time and `rpcb check` still works.
+
+```bash
+rpcb rules            # what is active, and where each rule comes from
+rpcb rules --kinds    # every check kind, its parameters, a worked example
+rpcb init             # scaffold rpcb.yaml, when you want one
+```
+
+`rpcb rules --kinds` is the authoritative reference. It is generated from the
+engine itself, so it cannot drift from what the code accepts. A rule with an
+unknown `check` or an invalid `severity` fails loudly and points you back to it.
+
+### Structure
 
 ```yaml
 rules:
-  - id: PWR001
-    ignore_nets: [VSYS]        # tweak a parameter
-  - id: BOM001
-    enabled: false             # silence entirely
-  - id: CAN001                 # or add your own
-    severity: error
-    check: net_must_contain
-    net: CANH
+  - id: CAN001                 # required. Reuse a built-in id to override it.
+    check: net_must_contain    # required. See `rpcb rules --kinds`.
+    severity: error            # error | warn | info. Default warn.
+    why: >                     # shown with every finding
+      CAN needs termination; 120R belongs only at physical bus ends.
+    net: CANH                  # ...then the params for that check kind
     must_contain: [R2]
-    why: CAN needs termination; 120R only at physical bus ends.
 ```
 
-Check kinds: `undriven_power`, `floating_pins`, `single_pin_net`,
-`pin_type_present`, `needs_pullup`, `decoupling`, `value_vs_symbol`,
-`required_field`, `net_must_contain`, `net_pin_count`.
+Add `enabled: false` to silence a built-in entirely.
 
-Modifiers: `ignore_nets`, `ignore_types`, `ignore_refs_matching`,
-`only_refs_matching`, `enabled`.
+### Tripwires vs silencing
+
+There are two reasons to write a rule, and they are not equal.
+
+A **tripwire** asserts something true of this board — `net_must_contain`,
+`net_pin_count`. It stays silent while correct and fires when a later edit
+breaks it. Producing no findings today is exactly the point; it is a regression
+guard for the next revision.
+
+**Silencing** — `ignore_nets`, `ignore_refs_matching`, `enabled: false` —
+removes information. Every ignore is a place a real problem can hide. Only
+silence a finding you have investigated, record the conclusion in `why`, and
+check that the ignore would ever actually fire: an ignore that can never match
+is dead config that misleads the next reader.
+
+Prefer tripwires. Earn every ignore.
+
+### Check kinds
+
+| kind | flags |
+|---|---|
+| `undriven_power` | nets with `power_in` pins but no `power_out` source |
+| `floating_pins` | pins of given types belonging to no net |
+| `single_pin_net` | pins wired to nothing (aggregated per component) |
+| `pin_type_present` | every pin of given types — surfaces ERC blind spots |
+| `needs_pullup` | open-drain pins with no resistor to a rail |
+| `decoupling` | capacitor count vs `power_in` count per power net |
+| `value_vs_symbol` | Value disagrees with the symbol used |
+| `required_field` | components missing a BOM field |
+| `net_must_contain` | tripwire: named refs must sit on a net |
+| `net_pin_count` | tripwire: net must have ≥ / ≤ N pins |
+
+Run `rpcb rules --kinds` for parameters and examples.
 
 ## Data model
 
