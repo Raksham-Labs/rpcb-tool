@@ -1,0 +1,83 @@
+# Built-in rules — ship with rpcb, apply to every project.
+#
+# Board-specific rules belong in `rpcb.yaml` at your project root. That file can
+# also OVERRIDE or SILENCE anything here by reusing the same `id`:
+#
+#   rules:
+#     - id: NET001
+#       severity: info            # downgrade
+#     - id: BOM001
+#       enabled: false            # silence entirely
+#     - id: PWR001
+#       ignore_nets: [VSYS]       # tweak a parameter, keep the rest
+#
+# IMPORTANT: rules produce FACTS WITH EVIDENCE, not verdicts. A finding is a
+# prompt to look, not proof of a defect.
+
+rules:
+
+  - id: PWR001
+    severity: error
+    check: undriven_power
+    why: >
+      A power_in pin with no power_out source on its net means the rail is
+      either unpowered or the source symbol has untyped pins, which silently
+      disables KiCad's own ERC for that rail.
+
+  - id: PWR002
+    severity: warn
+    check: decoupling
+    min_caps_per_power_pin: 1.0
+    why: >
+      Each power_in pin should have local decoupling. This counts capacitors on
+      the rail; it cannot see physical proximity, so a pass means "plausible",
+      not "verified".
+
+  - id: NET001
+    severity: warn
+    check: single_pin_net
+    ignore_types: [no_connect]
+    ignore_refs_matching: '^(H|TP|MK|FID)\d+$'
+    why: >
+      A net with one pin connects to nothing. Legitimate for test points and
+      mounting holes; otherwise it is a missing wire.
+
+  - id: NET002
+    severity: info
+    check: pin_type_present
+    types: [unspecified]
+    why: >
+      Pins typed `unspecified` are invisible to electrical rule checking. Every
+      one is a hole in the ERC coverage of this design.
+
+  - id: NET003
+    severity: warn
+    check: needs_pullup
+    types: [open_collector, open_emitter]
+    why: >
+      Open-drain / open-collector outputs cannot drive high on their own. They
+      need either a pull-up resistor or a firmware-enabled internal pull-up.
+
+  - id: NET004
+    severity: error
+    check: floating_pins
+    types: [power_in, input]
+    why: >
+      An input or power pin with no net is floating, which is undefined and a
+      common source of erratic behaviour.
+
+  - id: BOM001
+    severity: warn
+    check: required_field
+    field: MPN
+    ignore_refs_matching: '^(H|TP|MK|FID|J)\d+$'
+    why: An unpopulated MPN cannot be ordered or price-checked.
+
+  - id: BOM002
+    severity: info
+    check: value_vs_symbol
+    only_refs_matching: '^U\d+$'
+    why: >
+      The Value string and the schematic symbol name disagree. Usually a
+      deliberate pin-compatible substitution, but confirm the pinout matches --
+      a wrong symbol produces a correct-looking netlist for the wrong part.

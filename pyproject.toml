@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rpcb"
+version = "1.0.0"
+description = "Feed KiCad schematics to LLMs: resolved netlist model, rules, MCP server, agent launcher"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = ["pyyaml>=5.1"]
+
+[project.scripts]
+rpcb = "rpcb.cli:main"
+
+[tool.setuptools]
+packages = ["rpcb"]
+
+[tool.setuptools.package-data]
+rpcb = ["*.yaml", "*.md"]

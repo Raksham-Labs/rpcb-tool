@@ -1,0 +1,13 @@
+{
+  "name": "rpcb",
+  "owner": {
+    "name": "Shubham Singh"
+  },
+  "plugins": [
+    {
+      "name": "rpcb",
+      "source": "./plugins/rpcb",
+      "description": "KiCad schematic review for LLMs: resolved netlist model, pin/net queries, declarative design rules"
+    }
+  ]
+}

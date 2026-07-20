@@ -1,0 +1,8 @@
+{
+  "name": "rpcb",
+  "description": "KiCad schematic review for LLMs: resolved netlist model, pin/net queries, declarative design rules",
+  "version": "1.0.0",
+  "author": {
+    "name": "Shubham Singh"
+  }
+}
