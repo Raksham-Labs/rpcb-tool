@@ -1,14 +1,14 @@
 # KiCad schematic file format — what is actually in there
 
-> Research behind rpcb's design. Sample: the FlowLiteV2 board
-> (optical flow + 6m ToF), 2 sheets, 66 components.
+> Research behind rpcb's design. Figures come from one representative
+> two-sheet sensor board (66 components, 75 nets, 212 pin connections).
 
 Source files analysed:
 
 | File | Role | Lines | Bytes |
 |---|---|---|---|
-| `optical_flow_lidar.kicad_sch` | Root sheet (page 1, A3) | 16,031 | 282,083 |
-| `sensors.kicad_sch` | Child sheet `sensors` (page 2, A4) | 6,810 | 113,467 |
+| `board.kicad_sch` | Root sheet (page 1, A3) | 16,031 | 282,083 |
+| `subsheet.kicad_sch` | Child sheet (page 2, A4) | 6,810 | 113,467 |
 | **Total** | | **22,841** | **395,546** |
 
 Format: KiCad 10.0 S-expression, file format version `20260306`.
@@ -71,20 +71,20 @@ Defines the 25 distinct part types used. **30.3% of the file; only the `pin` row
 
 | Field | Count | Arity | Sample | Keep? | Description |
 |---|---|---|---|---|---|
-| `symbol` (lib) | 25 | 1 | `CANBUS:MCP2562FDT-H_MF` | **✓** | Library symbol ID — joins to instance `lib_id` |
+| `symbol` (lib) | 25 | 1 | `Transceiver:XCVR_A` | **✓** | Library symbol ID — joins to instance `lib_id` |
 | `power` | 5 | 1 | `global` | **✓** | **Marks symbol as a power symbol → implicit global net** |
 | `pin_names` / `offset` | 21 | 1 | `0.254` | ✗ | Name label offset |
 | `pin_names` / `hide` | 15 | 1 | `yes` | ✗ | Hide pin names |
 | `pin_numbers` / `hide` | 14 | 1 | `yes` | ✗ | Hide pin numbers |
 | `in_bom` | 25 | 1 | `yes`/`no` | ⚠ | BOM inclusion default |
 | `on_board`, `in_pos_files`, `exclude_from_sim`, `embedded_fonts`, `duplicate_pin_numbers_are_jumpers` | 25 each | 1 | `yes`/`no` | ✗ | Behaviour flags |
-| `property` | 176 | 2–3 | `Reference U`, `Value MCP2562FDT-H/MF` | ⚠ | Library defaults — overridden per instance |
+| `property` | 176 | 2–3 | `Reference U`, `Value XCVR-A-01` | ⚠ | Library defaults — overridden per instance |
 
 ### 4.1 `lib_symbols/symbol/symbol` — graphical body units (45)
 
 | Field | Count | Arity | Sample | Keep? | Description |
 |---|---|---|---|---|---|
-| `symbol` (unit) | 45 | 1 | `MCP2562FDT-H_MF_0_1` | ⚠ | Unit/body-style sub-block. Suffix `_U_B` = unit, body style |
+| `symbol` (unit) | 45 | 1 | `XCVR_A_0_1` | ⚠ | Unit/body-style sub-block. Suffix `_U_B` = unit, body style |
 | `polyline` + `pts`/`xy` | 71 / 195 | 2 | `5.08 5.08` | ✗ | **Body outline artwork — pure noise** |
 | `rectangle` (`start`,`end`) | 10 | 2 | `0.8636 0.127` | ✗ | Body box artwork |
 | `circle` (`center`,`radius`) | 1 | 1–2 | `0 0`, `1.27` | ✗ | Artwork |
@@ -113,7 +113,7 @@ Defines the 25 distinct part types used. **30.3% of the file; only the `pin` row
 | Field | Count | Arity | Sample | Keep? | Description |
 |---|---|---|---|---|---|
 | `lib_id` | 119 | 1 | `power:GND`, `Device:R_US` | **✓✓** | **Joins instance → `lib_symbols` definition** |
-| `lib_name` | 1 | 1 | `PMW3901MB-TXQT_1` | ⚠ | Override when instance uses a modified local copy |
+| `lib_name` | 1 | 1 | `SENSOR_B_1` | ⚠ | Override when instance uses a modified local copy |
 | `at` | 119 | 3 | `48.26 173.99 0` | **✓** | **x, y, rotation (0/90/180/270) — origin for pin transform** |
 | `mirror` | 6 | 1 | `y` | **✓** | **Mirror axis — flips pin coordinates. Easy to get wrong** |
 | `unit` | 119 | 1 | `1`, `2` | **✓** | Which unit of a multi-unit part |
@@ -122,7 +122,7 @@ Defines the 25 distinct part types used. **30.3% of the file; only the `pin` row
 | `pin` | 293 | 1 | `1`, `2` | **✓** | Pin number + its own UUID (net-tie identity) |
 | `pin/uuid` | 293 | 1 | `d77eb574-…` | ✗ | Per-pin UUID |
 | `property` | 819 | 2–3 | see §5.1 | **✓** | Instance metadata |
-| `instances/project` | 119 | 1 | `optical_flow_lidar` | ✗ | Project name |
+| `instances/project` | 119 | 1 | `board` | ✗ | Project name |
 | `instances/project/path` | 119 | 1 | `/745e1ba3…/0e7a7907…` | **✓** | **Hierarchical sheet path — disambiguates repeated sheets** |
 | `instances/…/reference` | 119 | 1 | `R8`, `D9`, `#PWR025` | **✓✓** | **Actual refdes.** `#PWR*` = power symbol |
 | `instances/…/unit` | 119 | 1 | `1`, `2` | **✓** | Unit for this instance path |
@@ -135,7 +135,7 @@ Defines the 25 distinct part types used. **30.3% of the file; only the `pin` row
 | Property name | Count | Keep? | Description |
 |---|---|---|---|
 | `Reference` | 144 | **✓✓** | Refdes (`R8`, `U3`, `#PWR04`) |
-| `Value` | 144 | **✓✓** | Value / part name (`10k`, `GND`, `MCP2562FDT-H/MF`) |
+| `Value` | 144 | **✓✓** | Value / part name (`10k`, `GND`, `XCVR-A-01`) |
 | `Footprint` | 144 | **✓** | Land pattern |
 | `Datasheet` | 144 | ⚠ | Datasheet link |
 | `Description` | 144 | ⚠ | Long text; for power symbols encodes the net name |
@@ -179,7 +179,7 @@ and a nested `effects/font/size` block. **That wrapper is ~90% of the property b
 
 | Field | Count | Arity | Sample | Keep? | Description |
 |---|---|---|---|---|---|
-| *(value)* | 74 | 1 | `PMW3901_NCS`, `CAN_5V`, `ToF_SCL`, `CANL` | **✓✓** | **Net name. Same name anywhere in the project = same net** |
+| *(value)* | 74 | 1 | `SPI_NCS`, `VBUS_5V`, `I2C_SCL`, `BUS_L` | **✓✓** | **Net name. Same name anywhere in the project = same net** |
 | `at` | 74 | 3 | `299.72 161.29 0` | **✓✓** | Attachment point — must match a wire endpoint |
 | `shape` | 74 | 1 | `input` | ⚠ | Port direction hint (cosmetic in KiCad, but useful for review) |
 | `fields_autoplaced` | 74 | 1 | `yes` | ✗ | Autoplace flag |
@@ -192,7 +192,7 @@ and a nested `effects/font/size` block. **That wrapper is ~90% of the property b
 | Field | Arity | Sample | Keep? | Description |
 |---|---|---|---|---|
 | `property Sheetname` | 2 | `sensors` | **✓** | Sheet instance name |
-| `property Sheetfile` | 2 | `sensors.kicad_sch` | **✓** | Child file |
+| `property Sheetfile` | 2 | `subsheet.kicad_sch` | **✓** | Child file |
 | `uuid` | 1 | `0e7a7907-…` | **✓** | Path component for child `instances` |
 | `at`, `size` | 2 | `25.4 71.12`, `48.26 38.1` | ✗ | Box geometry |
 | `stroke`, `fill`, `dnp`, `in_bom`, `on_board`, `exclude_from_sim`, `fields_autoplaced` | 1 | — | ✗ | Style/flags |
@@ -296,7 +296,7 @@ Rules confirmed empirically:
 | 5 | A wire endpoint touching another wire's **interior** needs a `junction` to connect. A **pin** landing mid-wire connects with no junction. |
 | 6 | A `global_label` name is **project-global** — merges components across both sheets. |
 | 7 | A **power symbol's `Value`** is *also* a project-global net name (`(power global)` in its lib def). All `+3.3V` symbols are one net, everywhere. |
-| 8 | When a net carries both a label and a power symbol, **the label name wins** as the display name (e.g. `+5V` symbol on a `VSYS`-labelled net → KiCad calls it `VSYS`). |
+| 8 | When a net carries both a label and a power symbol, **the label name wins** as the display name (e.g. `+5V` symbol on a `VMAIN`-labelled net → KiCad calls it `VMAIN`). |
 | 9 | `#PWR*` refdes are **not real components** — exclude them from net membership. |
 
 ### The trap that makes hand-rolled extraction dangerous
@@ -309,8 +309,8 @@ Yet CCW silently swapped pins 1↔2 on every 270°-rotated part. Concretely, `D4
 
 | | pin 1 "K" | pin 2 "A" |
 |---|---|---|
-| **Clockwise (correct)** | (48.26, **31.75**) → `USART1_TX` | (48.26, **39.37**) → `GND` |
-| Counter-clockwise (wrong) | (48.26, 39.37) → `GND` | (48.26, 31.75) → `USART1_TX` |
+| **Clockwise (correct)** | (48.26, **31.75**) → `UART_TX` | (48.26, **39.37**) → `GND` |
+| Counter-clockwise (wrong) | (48.26, 39.37) → `GND` | (48.26, 31.75) → `UART_TX` |
 
 Both versions have *every pin landing neatly on a wire*. The wrong one reverses the
 polarity of 4 protection diodes — exactly the class of error a design review exists to

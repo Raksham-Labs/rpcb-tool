@@ -9,10 +9,12 @@ Two agents agreeing is **not** evidence of correctness. They can share the same
 wrong recollection of a spec and reinforce it into false confidence — worse than
 one agent, because agreement reads as verification.
 
-Live example from the first review of FlowLiteV2: the top-ranked finding (CAN
-transceiver undervolted) rests on "MCP2562FD minimum VDD = 4.5V", asserted from
-model memory and never checked against the datasheet. If a second model recalls
-the same number, nothing has been verified.
+This is not hypothetical. In an early review, the top-ranked finding was that a
+transceiver sat below its minimum supply voltage — a conclusion that rested
+entirely on a minimum-VDD figure recalled from model memory and never checked
+against the datasheet. The connectivity behind it was solid; the limit it was
+compared against was not. A second model recalling the same number would have
+confirmed nothing.
 
 ## Shape
 
@@ -67,8 +69,10 @@ rpcb duel
 
 ## Prerequisites
 
-- [ ] `parts.yaml` — MPN → verified limits with page citations (~11 parts matter)
-- [ ] fix `U1` MPN (`MIC5219-3` is truncated) and `U3` datasheet URL (points at
-      VL53L1X; board uses VL53L4CX) — these are the join keys
+- [ ] `parts.yaml` — MPN → verified limits with page citations. Only the active
+      parts need entries; nobody needs a datasheet for an 0402 resistor.
+- [ ] clean MPN and datasheet fields on the board being reviewed — MPN is the
+      join key, and a datasheet link inherited from a borrowed symbol may point
+      at a different device entirely.
 - [ ] supply-margin rules reading `parts.yaml`, so the deterministic checker
-      catches the CAN rail case with no LLM at all
+      catches rail-headroom problems with no LLM in the loop at all

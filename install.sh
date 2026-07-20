@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # rpcb installer — CLI + Claude MCP + Codex MCP + Claude plugin.
 #
-#   curl -fsSL https://raw.githubusercontent.com/USER/rpcb-tool/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Raksham-Labs/rpcb-tool/main/install.sh | bash
 #   ./install.sh                 # from a local clone
 #   ./install.sh --uninstall
 #
@@ -9,8 +9,8 @@
 
 set -uo pipefail
 
-REPO_URL="${RPCB_REPO:-https://github.com/shubhamsingh/rpcb-tool}"
-INSTALL_DIR="${RPCB_HOME:-$HOME/ImportantProjects/rpcb-tool}"
+REPO_URL="${RPCB_REPO:-https://github.com/Raksham-Labs/rpcb-tool}"
+INSTALL_DIR="${RPCB_HOME:-$HOME/.local/share/rpcb-tool}"
 BRANCH="${RPCB_BRANCH:-main}"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }

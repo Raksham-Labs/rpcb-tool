@@ -1,7 +1,8 @@
 {
   "name": "rpcb",
   "owner": {
-    "name": "Shubham Singh"
+    "name": "Raksham Labs",
+    "url": "https://github.com/Raksham-Labs"
   },
   "plugins": [
     {

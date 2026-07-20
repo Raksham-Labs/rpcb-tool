@@ -12,7 +12,7 @@ answers about what is wired to what. `rpcb` hands it a resolved netlist instead:
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/USER/rpcb-tool/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Raksham-Labs/rpcb-tool/main/install.sh | bash
 ```
 
 Installs the CLI, registers the MCP server with **both** Claude Code and Codex,
