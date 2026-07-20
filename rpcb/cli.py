@@ -204,8 +204,13 @@ def _launch_agent(project, prompt_path, task, tools, args):
             cmd.append('exec')
         cmd.append(system_prompt + '\n---\n\n' + task)
     else:
-        cmd = [exe, '--append-system-prompt', system_prompt,
-               '--allowedTools', tools]
+        # ORDER MATTERS. `--allowedTools <tools...>` is variadic, so anything
+        # after it is eaten as another tool name -- including the task, which
+        # then never reaches Claude: the session opens with no prompt and the
+        # allowlist quietly gains a sentence. Keep a single-value option last so
+        # the positional cannot be absorbed.
+        cmd = [exe, '--allowedTools', tools,
+               '--append-system-prompt', system_prompt]
         if args.print:
             cmd.append('-p')
         cmd.append(task)
